@@ -1,0 +1,27 @@
+{
+  "css.validate": false,
+  "less.validate": false,
+  "scss.validate": false,
+  "html.validate.scripts": false,
+  "html.validate.styles": false,
+  "javascript.validate.enable": false,
+  "typescript.validate.enable": true,
+  "typescript.tsdk": "./node_modules/typescript/lib",
+  "prettier.resolveGlobalModules": false,
+  "editor.tabSize": 2,
+  "editor.formatOnPaste": false,
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "workbench.activityBar.orientation": "vertical",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit",
+    "source.fixAll.stylelint": "explicit"
+  },
+  "eslint.options": {
+    "overrideConfigFile": "eslint.config.js"
+  },
+  "stylelint.enable": true,
+  "stylelint.validate": ["css", "less", "postcss", "scss"],
+  "stylelint.configFile": "stylelint.config.js",
+  "java.configuration.updateBuildConfiguration": "automatic"
+}
