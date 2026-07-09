@@ -1,14 +1,33 @@
-# This file is a template, and might need editing before it works on your project.
-# Full project: https://gitlab.com/pages/plain-html
+stages:
+  - lintcode
+  - install
+  - build
+  - push
+  - clean
 
-image: busybox
-
-pages:
-  stage: deploy
+job1:
+  stage: lintcode
   script:
-    - echo "The site will be deployed to $CI_PAGES_URL"
-  artifacts:
-    paths:
-      - public
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - echo `lintcode`
+    
+job2:
+  stage: install
+  script:
+    - echo `install`
+
+
+job3:
+  stage: build
+  script:
+    - echo `build`
+
+
+job4:
+  stage: push
+  script:
+    - echo `push`
+
+job5:
+  stage: clean
+  script:
+    - echo `clean`
