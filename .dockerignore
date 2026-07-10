@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.gitlab-ci.yml
+Dockerfile
+.dockerfile
+.dockerignore
+.gitignore
+.husky
+.turbopack
+.vscode
+*.md
+!README.md
