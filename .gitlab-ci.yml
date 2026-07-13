@@ -50,7 +50,7 @@ variables:
 # ============================================================
 build:
   stage: build
-  image: node:20-alpine # Node.js 20 Alpine 版（体积小，~120MB）
+  image: node:22-alpine # Node.js 20 Alpine 版（体积小，~120MB）
 
   before_script:
     # 启用 corepack（Node.js 自带），用它安装 pnpm
@@ -216,19 +216,19 @@ deploy-prod:
 # ============================================================
 build-pages:
   stage: build
-  image: node:20-alpine
+  image: node:22-alpine
   before_script:
     - corepack enable && corepack prepare pnpm@latest --activate
   script:
     - pnpm install --frozen-lockfile
     - pnpm run build
-    - mv dist public                            # Pages 要求产物在 public/
+    - mv dist public # Pages 要求产物在 public/
   artifacts:
     paths:
       - public
     expire_in: 1 day
   rules:
-    - if: $CI_COMMIT_BRANCH == "master"         # 推 master → 部署 Pages
+    - if: $CI_COMMIT_BRANCH == "master" # 推 master → 部署 Pages
 
 deploy-pages:
   stage: deploy
@@ -243,7 +243,6 @@ deploy-pages:
   environment:
     name: production
     url: $CI_PAGES_URL
-
 # ============================================================
 #  附录：变量配置速查
 # ============================================================
