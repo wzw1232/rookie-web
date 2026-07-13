@@ -12,3 +12,5 @@
 /.mfsu
 .swc
 .turbopack
+.vercel
+.env*

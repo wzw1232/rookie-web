@@ -1,288 +1,125 @@
-# ============================================================
-#  .gitlab-ci.yml — 三分支自动化部署流水线
-# ============================================================
-#  分支策略：
-#  master → 纯代码仓库，不触发 CI/CD（只存代码，不构建不部署）
-#  dev    → 测试环境：构建镜像 + 推送到 Registry + 自动部署到测试服
-#  real   → 正式线上：构建镜像 + 推送到 Registry + 自动部署到生产服
-#           real 受 husky 保护，禁止直接 push，只能通过 GitLab MR 合并
+# GitLab CI/CD for rookie-web
 #
-#  流程：
-#  开发 → push dev → 自动部署测试环境
-#  测试通过 → GitLab 发起 MR 合并到 real → 自动部署生产环境
-# ============================================================
+# Flow:
+#   git push dev  -> build -> docker image -> deploy development
+#   git push real -> build -> docker image -> deploy production
+#
+# Required GitLab CI/CD variables:
+#   DEV_HOST, DEV_USER, DEV_SSH_KEY
+#   PROD_HOST, PROD_USER, PROD_SSH_KEY
 
-# ----------------------------------------------------------
-# 阶段定义：按顺序执行，上一阶段通过才会进入下一阶段
-# ----------------------------------------------------------
 stages:
-  - build # 阶段1：安装依赖 + 打包项目
-  - docker # 阶段2：构建 Docker 镜像 + 推送到镜像仓库
-  - deploy # 阶段3：SSH 连接服务器 + 拉取镜像 + 重启容器
+  - build
+  - docker
+  - deploy
 
-# ----------------------------------------------------------
-# 全局缓存：避免每次都重新下载 node_modules
-# ----------------------------------------------------------
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+    - if: '$CI_COMMIT_BRANCH == "real"'
+    - when: never
+
+variables:
+  IMAGE_NAME: '$CI_REGISTRY_IMAGE'
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ''
+  PNPM_STORE_PATH: .pnpm-store
+
 cache:
-  # key: 根据 pnpm-lock.yaml 的 hash 判断缓存是否有效
-  # 依赖不变 → 复用缓存 → 每次构建快 3~5 分钟
   key:
     files:
       - pnpm-lock.yaml
   paths:
-    - node_modules/ # 缓存 node_modules 目录
-    - .pnpm-store/ # 缓存 pnpm 的全局存储
+    - .pnpm-store/
 
-# ----------------------------------------------------------
-# 全局变量（所有 job 都能用）
-# ----------------------------------------------------------
-variables:
-  IMAGE_NAME: $CI_REGISTRY_IMAGE # 镜像地址 = registry.gitlab.com/用户名/项目名
-  DOCKER_HOST: tcp://docker:2375 # Docker 守护进程地址
-  DOCKER_DRIVER: overlay2 # Docker 存储驱动
-  DOCKER_TLS_CERTDIR: '' # 内网不需要 TLS 加密
-
-# ============================================================
-#  Job 1: build — 构建前端项目
-#  触发分支：dev / real
-#  注意：master 不触发，它是纯代码仓库
-#  作用：安装依赖 + pnpm build → 产出 dist/ 目录
-# ============================================================
-build:
-  stage: build
-  image: node:22-alpine # Node.js 20 Alpine 版（体积小，~120MB）
-
-  before_script:
-    # 启用 corepack（Node.js 自带），用它安装 pnpm
-    - corepack enable
-    - corepack prepare pnpm@latest --activate
-    # 打印版本号，方便排查问题
-    - node --version && pnpm --version
-
-  script:
-    # --frozen-lockfile：严格按 pnpm-lock.yaml 安装，不偷偷改版本
-    - pnpm install --frozen-lockfile
-    # max build = umi build，产物默认放在 dist/
-    - pnpm run build
-
-  artifacts:
-    paths:
-      - dist/ # 把 dist/ 传给下一个阶段的 job 用
-    expire_in: 1 hour # 1小时后自动清理（下一个阶段马上会用）
-
-  rules:
-    # master 不触发（纯代码仓库），只在 dev 和 real 分支触发
-    - if: $CI_COMMIT_BRANCH == "dev"
-    - if: $CI_COMMIT_BRANCH == "real"
-
-# ============================================================
-#  Job 2: docker-build — 构建 Docker 镜像 + 推送到 Registry
-#  触发分支：dev / real
-#
-#  打标签策略：
-#  dev  → dev（测试版）
-#  real → real（稳定/生产版）
-#  所有分支都额外打一个 commit-hash 标签，方便回滚
-# ============================================================
-docker-build:
-  stage: docker
-  image: docker:27 # Docker 官方镜像
-  services:
-    # Docker-in-Docker：在 CI 容器里再跑一个 Docker 守护进程
-    - docker:27-dind
-
-  before_script:
-    # 登录 GitLab 自带的镜像仓库（账号密码是 GitLab 自动生成的）
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-
-  script:
-    # 根据分支名决定标签（dev 或 real）
-    - |
-      if [ "$CI_COMMIT_BRANCH" = "dev" ]; then
-        BRANCH_TAG="dev"
-      elif [ "$CI_COMMIT_BRANCH" = "real" ]; then
-        BRANCH_TAG="real"
-      fi
-
-    # 构建镜像，同时打两个标签：
-    # ① 分支标签（dev/real）→ 部署时直接拉这个标签
-    # ② commit-hash 标签   → 出问题时可以精确回滚
-    - docker build -t $IMAGE_NAME:$BRANCH_TAG -t $IMAGE_NAME:$CI_COMMIT_SHORT_SHA .
-
-    # 推送两个标签到 GitLab Registry
-    - docker push $IMAGE_NAME:$BRANCH_TAG
-    - docker push $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
-
-  rules:
-    - if: $CI_COMMIT_BRANCH == "dev"
-    - if: $CI_COMMIT_BRANCH == "real"
-
-# ============================================================
-#  Job 3: deploy-dev — 部署到测试服务器
-#  触发分支：dev
-#  拉取镜像标签：dev
-#
-#  配置变量（GitLab → Settings → CI/CD → Variables）：
-#  DEV_HOST          = 测试服务器 IP
-#  DEV_USER          = SSH 用户名（如 root）
-#  DEV_SSH_KEY       = SSH 私钥内容（Type 选 "File"）
-# ============================================================
-deploy-dev:
-  stage: deploy
-  image: alpine:3.20 # 最小 Linux，~7MB
-
-  before_script:
-    # apk = Alpine 的包管理器，安装 SSH 客户端
-    - apk add --no-cache openssh-client
-    # 创建 .ssh 目录并写入私钥
-    - mkdir -p ~/.ssh
-    - echo "$DEV_SSH_KEY" > ~/.ssh/id_rsa
-    - chmod 600 ~/.ssh/id_rsa # 权限不对 SSH 会拒绝连接
-    # 提前获取服务器指纹，避免首次连接弹确认
-    - ssh-keyscan -H $DEV_HOST >> ~/.ssh/known_hosts
-
-  script:
-    # SSH 到测试服务器，执行部署命令
-    - ssh $DEV_USER@$DEV_HOST " echo '>>> [测试环境] 登录镜像仓库...' docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-
-      echo '>>> [测试环境] 拉取 dev 镜像...' docker pull $IMAGE_NAME:dev
-
-      echo '>>> [测试环境] 停旧容器...' docker stop rookie-web-dev 2>/dev/null || true docker rm rookie-web-dev 2>/dev/null || true
-
-      echo '>>> [测试环境] 启动新容器...' docker run -d --name rookie-web-dev \ -p 3000:80 \ --restart always \ $IMAGE_NAME:dev
-
-      echo '>>> [测试环境] 部署完成！' "
-
-  environment:
-    name: development # 环境名称（GitLab UI 能看到）
-    url: http://$DEV_HOST:3000 # 测试环境访问地址
-
-  rules:
-    - if: $CI_COMMIT_BRANCH == "dev" # 只在 dev 分支触发
-
-# ============================================================
-#  Job 4: deploy-prod — 部署到生产服务器
-#  触发分支：real（MR 合并后自动执行）
-#  拉取镜像标签：real
-#  安全说明：real 受 husky + GitLab MR 双重保护，无法直接 push，
-#  只能通过 Merge Request 合并，所以可以安全地自动部署
-#
-#  配置变量：
-#  PROD_HOST         = 生产服务器 IP
-#  PROD_USER         = SSH 用户名
-#  PROD_SSH_KEY      = SSH 私钥内容（Type 选 "File"）
-# ============================================================
-deploy-prod:
-  stage: deploy
-  image: alpine:3.20
-
-  before_script:
-    - apk add --no-cache openssh-client
-    - mkdir -p ~/.ssh
-    - echo "$PROD_SSH_KEY" > ~/.ssh/id_rsa
-    - chmod 600 ~/.ssh/id_rsa
-    - ssh-keyscan -H $PROD_HOST >> ~/.ssh/known_hosts
-
-  script:
-    # SSH 到生产服务器，部署 real 标签的镜像
-    - ssh $PROD_USER@$PROD_HOST " echo '>>> [生产环境] 登录镜像仓库...' docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-
-      echo '>>> [生产环境] 拉取 real 镜像...' docker pull $IMAGE_NAME:real
-
-      echo '>>> [生产环境] 停旧容器...' docker stop rookie-web 2>/dev/null || true docker rm rookie-web 2>/dev/null || true
-
-      echo '>>> [生产环境] 启动新容器...' docker run -d --name rookie-web \ -p 80:80 \ --restart always \ $IMAGE_NAME:real
-
-      echo '>>> [生产环境] 部署完成！' "
-
-  environment:
-    name: production # 生产环境
-    url: http://$PROD_HOST # 生产环境地址
-
-  rules:
-    - if: $CI_COMMIT_BRANCH == "real" # 只在 real 分支触发
-
-# ============================================================
-# ============================================================
-#  备选方案：GitLab Pages（零成本，不需要服务器）
-#  如果想用这个方案，把上面 Docker 部分注释掉，下面取消注释即可
-# ============================================================
-# ============================================================
-
-# ============================================================
-#  GitLab Pages 方案（零成本，不需要服务器）
-#  推送 master 分支 → 自动部署到 GitLab Pages
-#  访问地址：https://你的用户名.gitlab.io/项目名
-# ============================================================
-build-pages:
+build-web:
   stage: build
   image: node:22-alpine
   before_script:
-    - corepack enable && corepack prepare pnpm@latest --activate
+    - corepack enable
+    - corepack prepare pnpm@latest --activate
+    - pnpm config set store-dir $PNPM_STORE_PATH
+    - node --version
+    - pnpm --version
   script:
     - pnpm install --frozen-lockfile
     - pnpm run build
-    - mv dist public # Pages 要求产物在 public/
   artifacts:
     paths:
-      - public
-    expire_in: 1 day
-  rules:
-    - if: $CI_COMMIT_BRANCH == "master" # 推 master → 部署 Pages
+      - dist/
+    expire_in: 1 hour
 
-deploy-pages:
-  stage: deploy
-  image: busybox
+build-image:
+  stage: docker
+  image: docker:27
+  services:
+    - name: docker:27-dind
+      alias: docker
+  needs:
+    - job: build-web
+      artifacts: true
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:
-    - echo "已部署到 $CI_PAGES_URL"
-  artifacts:
-    paths:
-      - public
+    - |
+      case "$CI_COMMIT_BRANCH" in
+        dev) IMAGE_TAG="dev" ;;
+        real) IMAGE_TAG="real" ;;
+        *) echo "Unsupported branch: $CI_COMMIT_BRANCH" && exit 1 ;;
+      esac
+      docker build -t "$IMAGE_NAME:$IMAGE_TAG" -t "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA" .
+      docker push "$IMAGE_NAME:$IMAGE_TAG"
+      docker push "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+
+deploy-dev:
+  stage: deploy
+  image: alpine:3.20
+  needs:
+    - build-image
+  before_script:
+    - apk add --no-cache openssh-client
+    - mkdir -p ~/.ssh
+    - cp "$DEV_SSH_KEY" ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -H "$DEV_HOST" >> ~/.ssh/known_hosts
+  script:
+    - |
+      ssh "$DEV_USER@$DEV_HOST" \
+        "set -e; \
+         docker login -u '$CI_REGISTRY_USER' -p '$CI_REGISTRY_PASSWORD' '$CI_REGISTRY'; \
+         docker pull '$IMAGE_NAME:dev'; \
+         docker stop rookie-web-dev 2>/dev/null || true; \
+         docker rm rookie-web-dev 2>/dev/null || true; \
+         docker run -d --name rookie-web-dev -p 3000:80 --restart always '$IMAGE_NAME:dev'"
+  environment:
+    name: development
+    url: http://$DEV_HOST:3000
   rules:
-    - if: $CI_COMMIT_BRANCH == "master"
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+
+deploy-prod:
+  stage: deploy
+  image: alpine:3.20
+  needs:
+    - build-image
+  before_script:
+    - apk add --no-cache openssh-client
+    - mkdir -p ~/.ssh
+    - cp "$PROD_SSH_KEY" ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -H "$PROD_HOST" >> ~/.ssh/known_hosts
+  script:
+    - |
+      ssh "$PROD_USER@$PROD_HOST" \
+        "set -e; \
+         docker login -u '$CI_REGISTRY_USER' -p '$CI_REGISTRY_PASSWORD' '$CI_REGISTRY'; \
+         docker pull '$IMAGE_NAME:real'; \
+         docker stop rookie-web 2>/dev/null || true; \
+         docker rm rookie-web 2>/dev/null || true; \
+         docker run -d --name rookie-web -p 80:80 --restart always '$IMAGE_NAME:real'"
   environment:
     name: production
-    url: $CI_PAGES_URL
-# ============================================================
-#  附录：变量配置速查
-# ============================================================
-#  需要你在 GitLab → Settings → CI/CD → Variables 里配置：
-#
-#  ┌──────────────┬──────────────────────────────┐
-#  │ 变量名        │ 说明                          │
-#  ├──────────────┼──────────────────────────────┤
-#  │ DEV_HOST     │ 测试服务器 IP                  │
-#  │ DEV_USER     │ 测试服务器 SSH 用户名           │
-#  │ DEV_SSH_KEY  │ 测试服务器 SSH 私钥（File 类型） │
-#  │ PROD_HOST    │ 生产服务器 IP                  │
-#  │ PROD_USER    │ 生产服务器 SSH 用户名           │
-#  │ PROD_SSH_KEY │ 生产服务器 SSH 私钥（File 类型） │
-#  └──────────────┴──────────────────────────────┘
-#
-#  如果测试和线上一开始用同一台服务器：
-#  DEV_HOST 和 PROD_HOST 可以先填同一个 IP
-#  测试容器跑在 3000 端口，生产跑在 80 端口，互不影响
-# ============================================================
-
-# ============================================================
-#  GitLab 预定义变量速查
-# ============================================================
-#  $CI_REGISTRY_IMAGE     → registry.gitlab.com/你的用户名/项目名
-#  $CI_REGISTRY_USER      → gitlab-ci-token（自动生成）
-#  $CI_REGISTRY_PASSWORD  → 自动生成的临时密码
-#  $CI_COMMIT_SHORT_SHA   → commit 短 hash，如 a1b2c3d
-#  $CI_COMMIT_BRANCH      → 当前分支名
-#  $CI_DEFAULT_BRANCH     → 默认分支名
-#  $CI_PAGES_URL          → GitLab Pages 地址
-#
-#  🐳 Docker 常用命令：
-#  docker build -t 名称:标签 .    # 构建镜像
-#  docker images                  # 查看本地镜像列表
-#  docker ps                      # 查看运行中的容器
-#  docker ps -a                   # 查看所有容器（含已停止）
-#  docker logs 容器名             # 查看容器日志
-#  docker logs -f 容器名          # 实时跟踪日志
-#  docker exec -it 容器名 sh      # 进入容器内部调试
-#  docker stop/rm 容器名          # 停止/删除容器
-#  docker system prune -a         # 清理无用镜像和缓存
-# ============================================================
+    url: http://$PROD_HOST
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "real"'
