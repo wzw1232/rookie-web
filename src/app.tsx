@@ -2,18 +2,16 @@
 // 全局初始化数据 → Umi @@initialState（兼容框架内置插件）
 // Zustand stores 用于业务代码中的状态管理
 
-import { useUserStore } from '@/stores/useUserStore'
 import { APP_NAME } from '@/constants'
+import { useUserStore } from '@/stores/useUserStore'
 import { WaterMark } from '@ant-design/pro-components'
 import { RunTimeLayoutConfig } from '@umijs/max'
 import Footer from './components/Footer'
 import RightContent from './components/RightContent'
 import { getUserInfo } from './services/user'
 
-// ============================================================
 // getInitialState — Umi 运行时初始化
-// ============================================================
-//
+
 // 每次页面加载时执行一次，返回的 initialState 注入到：
 // - Umi access 插件（路由权限判断）
 // - Umi layout 插件（标题等）
@@ -52,14 +50,10 @@ export async function getInitialState(): Promise<API.InitialState> {
   }
 }
 
-// ============================================================
 // 请求配置：从 utils/request 导出
-// ============================================================
 export { request } from './utils/request'
 
-// ============================================================
 // Layout 运行时配置
-// ============================================================
 export const layout: RunTimeLayoutConfig = ({ initialState }) => {
   // ---- 监听 Zustand → Umi 的同步事件 ----
   // 当 useUserStore 状态变更时，同步更新 @@initialState

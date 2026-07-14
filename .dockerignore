@@ -1,5 +1,8 @@
 node_modules
 .git
+.github
+.vercel
+.env*
 .gitlab-ci.yml
 Dockerfile
 .dockerfile
@@ -8,5 +11,7 @@ Dockerfile
 .husky
 .turbopack
 .vscode
+.vercelignore
+vercel.json
 *.md
 !README.md

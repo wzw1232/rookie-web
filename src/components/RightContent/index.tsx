@@ -11,20 +11,20 @@
  * - 退出登录：调用 `useUserStore.logout()` → 清空 token/user → 跳转登录页
  */
 
-import { LogoutOutlined, UserOutlined } from '@ant-design/icons';
-import { history, useModel } from '@umijs/max';
-import { Avatar, Dropdown, message, Spin } from 'antd';
-import type { MenuProps } from 'antd';
-import React, { useCallback } from 'react';
-import { useUserStore } from '@/stores/useUserStore';
+import { useUserStore } from '@/stores/useUserStore'
+import { LogoutOutlined, UserOutlined } from '@ant-design/icons'
+import { history, useModel } from '@umijs/max'
+import type { MenuProps } from 'antd'
+import { Avatar, Dropdown, message, Spin } from 'antd'
+import React, { useCallback } from 'react'
 
 const RightContent: React.FC = () => {
   // ---- 从 Zustand 读取用户状态 ----
-  const currentUser = useUserStore((s) => s.currentUser);
-  const logout = useUserStore((s) => s.logout);
+  const currentUser = useUserStore((s) => s.currentUser)
+  const logout = useUserStore((s) => s.logout)
 
   // ---- 兼容 Umi @@initialState（供其他 Umi 插件使用） ----
-  const { setInitialState } = useModel('@@initialState');
+  const { setInitialState } = useModel('@@initialState')
 
   /**
    * 退出登录
@@ -33,19 +33,28 @@ const RightContent: React.FC = () => {
    * 3. 跳转到登录页
    */
   const handleLogout = useCallback(() => {
-    logout(); // Zustand: 清空 state + 触发 persist 清理 localStorage
+    logout() // Zustand: 清空 state + 触发 persist 清理 localStorage
     setInitialState({
       permissions: [],
       token: null,
       currentUser: undefined,
-    });
-    message.success('已退出登录');
-    history.push('/user/login');
-  }, [logout, setInitialState]);
+    })
+    message.success('已退出登录')
+    history.push('/user/login')
+  }, [logout, setInitialState])
 
   // ---- 未登录态 ----
   if (!currentUser) {
-    return <Spin size="small" style={{ marginRight: 24 }} />;
+    return (
+      <div
+        onClick={() => {
+          history.push('/user/login')
+          message.success('请先登录')
+        }}
+      >
+        <Spin size="small" style={{ marginRight: 24 }} />
+      </div>
+    )
   }
 
   // ---- 下拉菜单项 ----
@@ -56,7 +65,7 @@ const RightContent: React.FC = () => {
       label: '退出登录',
       onClick: handleLogout,
     },
-  ];
+  ]
 
   // ---- 渲染 ----
   return (
@@ -78,7 +87,7 @@ const RightContent: React.FC = () => {
         <span>{currentUser.name || currentUser.username}</span>
       </div>
     </Dropdown>
-  );
-};
+  )
+}
 
-export default RightContent;
+export default RightContent
