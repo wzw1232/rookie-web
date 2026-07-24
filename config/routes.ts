@@ -50,6 +50,12 @@ export default [
         component: './Demo/Components',
         access: 'demo:components',
       },
+      {
+        name: '分组多行表格',
+        path: '/demo/group-multi-table',
+        component: './Demo/GroupMultiTable',
+        access: 'demo:group-multi-table',
+      },
     ],
   },
 
@@ -58,4 +64,4 @@ export default [
     path: '/*',
     component: './404',
   },
-];
+]

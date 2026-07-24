@@ -2,7 +2,7 @@
 // 参考文档 https://umijs.org/docs/max/access
 
 export default (initialState: API.InitialState | undefined) => {
-  const { permissions = [] } = initialState ?? {};
+  const { permissions = [] } = initialState ?? {}
 
   return {
     /** 是否已认证（有任意权限即为已登录） */
@@ -17,5 +17,6 @@ export default (initialState: API.InitialState | undefined) => {
     demo: permissions.includes('demo'),
     'demo:upload': permissions.includes('demo:upload'),
     'demo:components': permissions.includes('demo:components'),
-  };
-};
+    'demo:group-multi-table': permissions.includes('demo:group-multi-table'),
+  }
+}
